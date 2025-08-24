@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv
+venv/
+env/
+.build/
+dist/
+.eggs/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# Byte-compiled / cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+logs/
+*.log
+
+# Docker
+*.pid
+*.sock
+.docker/
+
+# Local overrides
+.env.dev.local
+.env.staging.local
+.env.prod.local
