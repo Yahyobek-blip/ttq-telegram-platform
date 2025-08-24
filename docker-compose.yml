@@ -49,7 +49,7 @@ services:
       context: ./backend
     env_file:
       - .env.dev
-    command: celery -A app.services.celery_app.celery_app worker -l info
+    command: celery -A app.services.celery_app:celery_app worker -l info
     volumes:
       - ./backend:/app
       - ./logs:/app/logs

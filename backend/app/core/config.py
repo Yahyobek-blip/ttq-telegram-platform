@@ -1,5 +1,6 @@
-from pydantic_settings import BaseSettings
 from pydantic import Field
+from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     env: str = Field(default="dev", alias="ENV")
@@ -24,5 +25,6 @@ class Settings(BaseSettings):
     class Config:
         extra = "ignore"
         env_file = ".env"
+
 
 settings = Settings()

@@ -1,8 +1,10 @@
 import json
 import logging
 import os
-from logging.config import dictConfig
 from datetime import datetime
+from logging.config import dictConfig
+from typing import Any, Dict
+
 
 class JSONFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -27,6 +29,7 @@ class JSONFormatter(logging.Formatter):
         }
         return json.dumps(payload, ensure_ascii=False)
 
+
 def setup_logging() -> None:
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
     log_json = os.getenv("LOG_JSON", "1") in ("1", "true", "True")
@@ -34,9 +37,8 @@ def setup_logging() -> None:
 
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
 
-    fmt = "JSON" if log_json else "%(asctime)s %(levelname)s %(name)s %(message)s"
-
-    base_handlers = {
+    # Явно типизируем для mypy
+    handlers: Dict[str, Dict[str, Any]] = {
         "console": {
             "class": "logging.StreamHandler",
             "level": log_level,
@@ -54,15 +56,15 @@ def setup_logging() -> None:
         },
     }
 
-    dictConfig(
-        {
-            "version": 1,
-            "disable_existing_loggers": False,
-            "formatters": {
-                "json": {"()": JSONFormatter},
-                "plain": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"},
-            },
-            "handlers": base_handlers,
-            "root": {"level": log_level, "handlers": ["console", "file"]},
-        }
-    )
+    config: Dict[str, Any] = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "json": {"()": JSONFormatter},
+            "plain": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"},
+        },
+        "handlers": handlers,
+        "root": {"level": log_level, "handlers": ["console", "file"]},
+    }
+
+    dictConfig(config)
