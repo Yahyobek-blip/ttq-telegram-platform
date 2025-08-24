@@ -5,21 +5,30 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=off \
     PIP_DISABLE_PIP_VERSION_CHECK=on
 
-# System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Poetry
 RUN pip install --upgrade pip && pip install poetry
 
-# Сначала метаданные из КОРНЯ контекста сборки
+# 1) метаданные + deps без установки проекта
 COPY pyproject.toml README.md ./
-RUN poetry config virtualenvs.create false && poetry install --no-interaction --no-ansi
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-ansi --no-root
 
-# Затем исходники бэкенда
-COPY backend/ .
+# 2) исходники бэкенда
+COPY backend/ ./backend/
+
+# 3) alembic-файлы
+COPY alembic.ini ./alembic.ini
+COPY alembic/ ./alembic/
+
+# safety: пакет app присутствует
+RUN test -f backend/app/__init__.py || (mkdir -p backend/app && printf "" > backend/app/__init__.py)
+
+# 4) установка текущего проекта (root)
+RUN poetry install --no-interaction --no-ansi
 
 EXPOSE 8080

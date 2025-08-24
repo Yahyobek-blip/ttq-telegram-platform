@@ -1,5 +1,8 @@
 from fastapi import FastAPI, Request
 
+from app.api.v1.routers.organizations import router as org_router
+
+from .api.v1.routers.db_health import router as db_health_router
 from .api.v1.routers.health import router as health_router
 from .core.logging_config import setup_logging
 
@@ -20,3 +23,5 @@ async def add_request_id_header(request: Request, call_next):
 
 
 app.include_router(health_router, prefix="/api/v1")
+app.include_router(db_health_router, prefix="/api/v1")
+app.include_router(org_router, prefix="/api/v1")

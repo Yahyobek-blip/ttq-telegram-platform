@@ -1,0 +1,28 @@
+@'
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+
+# Env (на билд не нужны общие .env, наши .env.dev|staging|prod оставим)
+.env
+!.env.dev
+!.env.staging
+!.env.prod
+
+# Logs / IDE / misc
+logs/
+*.log
+.vscode/
+.idea/
+node_modules/
+.docker/
+*.pid
+*.sock
+'@ | Set-Content .dockerignore -Encoding UTF8
