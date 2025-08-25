@@ -34,3 +34,4 @@ poetry.toml
 *.pid
 
 *.py text eol=lf
+.env*
