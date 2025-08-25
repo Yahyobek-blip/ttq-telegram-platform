@@ -32,3 +32,5 @@ poetry.toml
 # Docker / cache
 **/.pytest_cache/
 *.pid
+
+*.py text eol=lf
