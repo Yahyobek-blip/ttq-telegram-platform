@@ -29,9 +29,6 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    # user: "1000:1000"   # опционально; убери, если будут проблемы с правами в Windows
-    env_file:
-      - .env.dev
     command: uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
@@ -45,21 +42,37 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - .env.dev
 
   worker:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    # user: "1000:1000"   # опционально; убери, если будут проблемы с правами
-    env_file:
-      - .env.dev
-    command: celery -A app.services.celery_app:celery_app worker -l info
+    command: celery -A app.services.celery_app.celery_app worker --loglevel=INFO
     volumes:
       - ./backend:/app
       - ./logs:/app/logs
     depends_on:
       redis:
         condition: service_healthy
+    env_file:
+      - .env.dev
 
+  tg_bot:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: python -m app.adapters.telegram.run
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env.dev
+    volumes:
+      - ./backend:/app
+      - ./logs:/app/logs
 volumes:
   db_data:

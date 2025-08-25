@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (  # ← добавили Response
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Response,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db  # см. комментарий выше
+from app.api.deps import get_db
 from app.api.v1.schemas.organization import OrganizationCreate, OrganizationRead, OrganizationUpdate
 from app.db.models.organization import Organization
 
@@ -63,11 +70,16 @@ def update_organization(org_id: UUID, payload: OrganizationUpdate, db: Session =
     return org
 
 
-@router.delete("/{org_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_organization(org_id: UUID, db: Session = Depends(get_db)):
+@router.delete(
+    "/{org_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,  # ← ключевая строка
+)
+def delete_organization(org_id: UUID, db: Session = Depends(get_db)) -> Response:
+    # Вариант 1: через ORM
     org = db.get(Organization, org_id)
-    if not org:
-        # idempotent delete
-        return
-    db.delete(org)
-    db.commit()
+    if org:
+        db.delete(org)
+        db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    # Вариант 2 (эквивалентно): db.execute(delete(Organization).where(Organization.id == org_id)); db.commit(); return Response(status_code=204)

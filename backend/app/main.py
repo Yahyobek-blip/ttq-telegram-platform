@@ -1,27 +1,15 @@
-from fastapi import FastAPI, Request
+# backend/app/main.py
+from fastapi import FastAPI
 
-from app.api.v1.routers.organizations import router as org_router
+from app.api.v1.routers import bots, celery_ping, health, org_users, organizations, users
 
-from .api.v1.routers.db_health import router as db_health_router
-from .api.v1.routers.health import router as health_router
-from .core.logging_config import setup_logging
+app = FastAPI(title="TTQ_02")
 
-setup_logging()
+# Роуты
+app.include_router(organizations.router, prefix="/api/v1")
+app.include_router(celery_ping.router, prefix="/api/v1")
+app.include_router(health.router, prefix="/api/v1")
 
-app = FastAPI(title="TTQ Telegram Presence Platform")
-
-
-@app.middleware("http")
-async def add_request_id_header(request: Request, call_next):
-    # Very lightweight request id
-    import uuid
-
-    request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-    return response
-
-
-app.include_router(health_router, prefix="/api/v1")
-app.include_router(db_health_router, prefix="/api/v1")
-app.include_router(org_router, prefix="/api/v1")
+app.include_router(users.router, prefix="/api/v1")
+app.include_router(bots.router, prefix="/api/v1")
+app.include_router(org_users.router, prefix="/api/v1")
