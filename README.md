@@ -1,53 +1,36 @@
-# Telegram Presence Platform — Stage 0 (Base)
+﻿# TTQ Telegram Platform
 
-This is a minimal Stage 0 skeleton: repo layout, tooling, envs, logging to JSON, Docker Compose (Postgres, Redis, backend, worker), and CI.
+Production-ready skeleton for a managed Telegram platform.
 
-## Layout
-```
-backend/
-  app/
-    core/            # config, logging
-    api/v1/routers/  # FastAPI routers
-    services/        # celery app
-frontend/            # reserved
-ops/                 # reserved
-.github/workflows/   # CI
-```
+**Stack:** FastAPI · SQLAlchemy · Alembic · PostgreSQL · Celery/Redis · aiogram · Docker Compose
+**Stage 0–1 готово:** базовая инфраструктура, health-check’и, CRUD по organizations/users/bots/org-users, Celery ping, телеграм-бот (aiogram 3.x).
 
-## Quickstart (local)
+## Быстрый старт
+
 ```bash
-# 1) Create & activate venv (Python 3.11+)
-python -m venv .venv
-# Windows:
-.\.venv\Scripts\activate
-# Linux/macOS:
-source .venv/bin/activate
-
-# 2) Install Poetry
-pip install --upgrade pip
-pip install poetry
-
-# 3) Install deps
-poetry install --with dev
-
-# 4) Pre-commit hooks
-pre-commit install
-pre-commit run --all-files
-
-# 5) Run backend
-uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
-
-# 6) Healthcheck
+cp .env.example .env.dev
+docker compose up -d --build
+# хелсчеки
 curl http://127.0.0.1:8080/api/v1/health
-```
+curl http://127.0.0.1:8080/api/v1/health/db
+API (чекпоинты)
+GET /api/v1/health, GET /api/v1/health/db
 
-## Docker Compose
-```bash
-# copy env
-cp .env.dev .env
-docker compose up --build
-# backend: http://127.0.0.1:8080/api/v1/health
-```
+GET/POST/PATCH/DELETE /api/v1/organizations
 
-## CI
-GitHub Actions runs: ruff, black, isort, mypy, tests, docker build.
+GET/POST/PATCH/DELETE /api/v1/users
+
+GET/POST/PATCH/DELETE /api/v1/bots
+
+GET/POST/PATCH/DELETE /api/v1/org-users
+
+POST /api/v1/celery/ping — ставит задачу, worker отвечает "pong"
+
+План Stage 2 (next)
+Логин/авторизация для админки (JWT / session)
+
+Связка бота с организациями, валидации
+
+Базовая админ-панель (frontend)
+
+Интеграционные тесты и CI
