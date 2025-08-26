@@ -1,33 +1,57 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
+from typing import Annotated, Optional
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
+
+# Тип для username с проверками
+Username = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=64),
+]
 
 
-class BotBase(BaseModel):
-    organization_id: uuid.UUID | None = None
-    username: str = Field(max_length=64)
-    tg_bot_id: int | None = None
-    is_active: bool = True
-
-    model_config = dict(from_attributes=True)
+# ----- INPUT / MUTATION -----
 
 
-class BotCreate(BotBase):
-    pass
+class BotCreate(BaseModel):
+    """Создание бота в нашей системе (НЕ BotFather)."""
+
+    username: Username = Field(..., description="Юзернейм бота без @")
 
 
 class BotUpdate(BaseModel):
-    organization_id: uuid.UUID | None = None
-    username: str | None = Field(default=None, max_length=64)
-    is_active: bool | None = None
+    """Частичное обновление."""
 
-    model_config = dict(from_attributes=True)
+    tg_bot_id: Optional[int] = Field(None, description="numeric id бота в Telegram")
+    organization_id: Optional[UUID] = Field(None, description="привязка к организации")
+    is_active: Optional[bool] = Field(None, description="вкл/выкл")
 
 
-class BotRead(BotBase):
-    id: uuid.UUID
-    created_at: datetime
-    updated_at: datetime
+class BotRotateTokenIn(BaseModel):
+    """Временная передача полного токена для ротации (мы его не храним)."""
+
+    token: str = Field(
+        ..., min_length=10, description="Полный токен TG-бота (например 123456:ABC...)"
+    )
+
+
+# ----- OUTPUT / READ -----
+
+
+class BotRead(BaseModel):
+    id: UUID
+    username: str
+    tg_bot_id: Optional[int] = None
+    organization_id: Optional[UUID] = None
+    is_active: bool = True
+    token_last4: Optional[str] = None
+    token_rotated_at: Optional[datetime] = None
+
+
+class BotRotateTokenOut(BaseModel):
+    id: UUID
+    token_last4: str
+    token_rotated_at: datetime

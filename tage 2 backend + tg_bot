@@ -1,0 +1,561 @@
+[1mdiff --git a/alembic/versions/2025_08_26_000003_bots_enrich.py b/alembic/versions/2025_08_26_000003_bots_enrich.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..063923c[m
+[1m--- /dev/null[m
+[1m+++ b/alembic/versions/2025_08_26_000003_bots_enrich.py[m
+[36m@@ -0,0 +1,80 @@[m
+[32m+[m[32m"""enrich bots: tg_bot_id, org_id, is_active, token meta (idempotent)[m
+[32m+[m
+[32m+[m[32mRevision ID: 2025_08_26_000003_bots_enrich[m
+[32m+[m[32mRevises: 2025_08_26_000002_accounts[m
+[32m+[m[32mCreate Date: 2025-08-26 17:35:00[m
+[32m+[m[32m"""[m
+[32m+[m[32mfrom __future__ import annotations[m
+[32m+[m
+[32m+[m[32mfrom alembic import op[m
+[32m+[m[32mimport sqlalchemy as sa[m
+[32m+[m
+[32m+[m[32m# revision identifiers, used by Alembic.[m
+[32m+[m[32mrevision = "2025_08_26_000003_bots_enrich"[m
+[32m+[m[32mdown_revision = "2025_08_26_000002_accounts"[m
+[32m+[m[32mbranch_labels = None[m
+[32m+[m[32mdepends_on = None[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef upgrade() -> None:[m
+[32m+[m[32m    # --- колонки: добавляем только если их нет ---[m
+[32m+[m[32m    op.execute("ALTER TABLE bots ADD COLUMN IF NOT EXISTS tg_bot_id BIGINT")[m
+[32m+[m[32m    op.execute("ALTER TABLE bots ADD COLUMN IF NOT EXISTS organization_id UUID")[m
+[32m+[m[32m    op.execute("ALTER TABLE bots ADD COLUMN IF NOT EXISTS is_active BOOLEAN")[m
+[32m+[m[32m    op.execute("ALTER TABLE bots ADD COLUMN IF NOT EXISTS token_hash VARCHAR(64)")[m
+[32m+[m[32m    op.execute("ALTER TABLE bots ADD COLUMN IF NOT EXISTS token_last4 VARCHAR(8)")[m
+[32m+[m[32m    op.execute("ALTER TABLE bots ADD COLUMN IF NOT EXISTS token_rotated_at TIMESTAMPTZ")[m
+[32m+[m
+[32m+[m[32m    # is_active: выставим DEFAULT TRUE и NOT NULL (без падений)[m
+[32m+[m[32m    op.execute("ALTER TABLE bots ALTER COLUMN is_active SET DEFAULT TRUE")[m
+[32m+[m[32m    op.execute("UPDATE bots SET is_active = TRUE WHERE is_active IS NULL")[m
+[32m+[m[32m    op.execute("ALTER TABLE bots ALTER COLUMN is_active SET NOT NULL")[m
+[32m+[m
+[32m+[m[32m    # --- уникальность tg_bot_id (разрешаем несколько NULL) ---[m
+[32m+[m[32m    # Создаём частичный уникальный индекс, если его ещё нет.[m
+[32m+[m[32m    op.execute([m
+[32m+[m[32m        """[m
+[32m+[m[32m        CREATE UNIQUE INDEX IF NOT EXISTS uq_bots_tg_bot_id[m
+[32m+[m[32m        ON bots (tg_bot_id)[m
+[32m+[m[32m        WHERE tg_bot_id IS NOT NULL[m
+[32m+[m[32m        """[m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m[32m    # --- FK на organizations(id) (если ещё нет) ---[m
+[32m+[m[32m    op.execute([m
+[32m+[m[32m        """[m
+[32m+[m[32m        DO $$[m
+[32m+[m[32m        BEGIN[m
+[32m+[m[32m          IF NOT EXISTS ([m
+[32m+[m[32m            SELECT 1[m
+[32m+[m[32m            FROM information_schema.table_constraints[m
+[32m+[m[32m            WHERE table_name = 'bots'[m
+[32m+[m[32m              AND constraint_type = 'FOREIGN KEY'[m
+[32m+[m[32m              AND constraint_name = 'fk_bots_organization_id_organizations'[m
+[32m+[m[32m          ) THEN[m
+[32m+[m[32m            ALTER TABLE bots[m
+[32m+[m[32m            ADD CONSTRAINT fk_bots_organization_id_organizations[m
+[32m+[m[32m            FOREIGN KEY (organization_id)[m
+[32m+[m[32m            REFERENCES organizations(id)[m
+[32m+[m[32m            ON DELETE SET NULL;[m
+[32m+[m[32m          END IF;[m
+[32m+[m[32m        END$$;[m
+[32m+[m[32m        """[m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef downgrade() -> None:[m
+[32m+[m[32m    # удаляем FK, если он есть[m
+[32m+[m[32m    op.execute([m
+[32m+[m[32m        "ALTER TABLE bots DROP CONSTRAINT IF EXISTS fk_bots_organization_id_organizations"[m
+[32m+[m[32m    )[m
+[32m+[m[32m    # удаляем уникальный индекс (если вдруг был создан)[m
+[32m+[m[32m    op.execute("DROP INDEX IF EXISTS uq_bots_tg_bot_id")[m
+[32m+[m
+[32m+[m[32m    # удаляем колонки, если они есть[m
+[32m+[m[32m    op.execute("ALTER TABLE bots DROP COLUMN IF EXISTS token_rotated_at")[m
+[32m+[m[32m    op.execute("ALTER TABLE bots DROP COLUMN IF EXISTS token_last4")[m
+[32m+[m[32m    op.execute("ALTER TABLE bots DROP COLUMN IF EXISTS token_hash")[m
+[32m+[m[32m    op.execute("ALTER TABLE bots DROP COLUMN IF EXISTS is_active")[m
+[32m+[m[32m    op.execute("ALTER TABLE bots DROP COLUMN IF EXISTS organization_id")[m
+[32m+[m[32m    op.execute("ALTER TABLE bots DROP COLUMN IF EXISTS tg_bot_id")[m
+[1mdiff --git a/backend/app/adapters/telegram/bot.py b/backend/app/adapters/telegram/bot.py[m
+[1mindex 03bebca..0a9803e 100644[m
+[1m--- a/backend/app/adapters/telegram/bot.py[m
+[1m+++ b/backend/app/adapters/telegram/bot.py[m
+[36m@@ -1,63 +1,198 @@[m
+[31m-import logging[m
+[32m+[m[32mfrom __future__ import annotations[m
+[32m+[m
+ import os[m
+[32m+[m[32mimport json[m
+[32m+[m[32mimport logging[m
+[32m+[m[32mfrom typing import Any, List, Optional[m
+[32m+[m
+[32m+[m[32mfrom aiogram import Router, types[m
+[32m+[m[32mfrom aiogram.filters import Command[m
+[32m+[m[32mimport aiohttp[m
+[32m+[m
+[32m+[m[32mlogger = logging.getLogger("tg_bot")[m
+[32m+[m[32mrouter = Router(name="tg-bot")[m
+[32m+[m
+[32m+[m[32mBACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://backend:8080").rstrip("/")[m
+[32m+[m
+ [m
+[31m-from aiogram import Bot, Dispatcher, F[m
+[31m-from aiogram.client.default import DefaultBotProperties[m
+[31m-from aiogram.enums import ParseMode[m
+[31m-from aiogram.filters import Command, CommandStart[m
+[31m-from aiogram.types import Message[m
+[31m-from celery.result import AsyncResult[m
+[32m+[m[32mdef _short_json(obj: Any) -> str:[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        s = json.dumps(obj, ensure_ascii=False)[m
+[32m+[m[32m        return s if len(s) <= 400 else s[:397] + "..."[m
+[32m+[m[32m    except Exception:[m
+[32m+[m[32m        return str(obj)[m
+ [m
+[31m-from app.services.celery_app import celery_app[m
+[31m-from app.services.tasks import ping as ping_task[m
+ [m
+[31m-logger = logging.getLogger(__name__)[m
+[32m+[m[32masync def _backend_json(method: str, url: str, *, json_body: Any | None = None, timeout: int = 10) -> Any:[m
+[32m+[m[32m    async with aiohttp.ClientSession() as sess:[m
+[32m+[m[32m        if method == "GET":[m
+[32m+[m[32m            async with sess.get(url, timeout=timeout) as resp:[m
+[32m+[m[32m                return await resp.json(content_type=None)[m
+[32m+[m[32m        elif method == "POST":[m
+[32m+[m[32m            async with sess.post(url, json=json_body, timeout=timeout) as resp:[m
+[32m+[m[32m                return await resp.json(content_type=None)[m
+[32m+[m[32m        elif method == "PATCH":[m
+[32m+[m[32m            async with sess.patch(url, json=json_body, timeout=timeout) as resp:[m
+[32m+[m[32m                return await resp.json(content_type=None)[m
+[32m+[m[32m        else:[m
+[32m+[m[32m            raise RuntimeError(f"unsupported method: {method}")[m
+ [m
+[31m-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")[m
+[31m-if not TELEGRAM_TOKEN:[m
+[31m-    logger.warning("TELEGRAM_TOKEN is empty. Bot will not start.")[m
+ [m
+[31m-bot = Bot(token=TELEGRAM_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))[m
+[31m-dp = Dispatcher()[m
+[32m+[m[32masync def _get_user_by_tg(tg_user_id: int) -> Optional[dict]:[m
+[32m+[m[32m    url = f"{BACKEND_BASE_URL}/api/v1/users?tg_user_id={tg_user_id}"[m
+[32m+[m[32m    data = await _backend_json("GET", url)[m
+[32m+[m[32m    logger.info("tg_bot:/me raw resp type=%s val=%s", type(data).__name__.lower(), _short_json(data))[m
+[32m+[m[32m    users: List[dict] = data if isinstance(data, list) else data.get("items") or [][m
+[32m+[m[32m    return users[0] if users else None[m
+ [m
+ [m
+[31m-@dp.message(CommandStart())[m
+[31m-async def start(message: Message) -> None:[m
+[32m+[m[32m@router.message(Command("start"))[m
+[32m+[m[32masync def cmd_start(message: types.Message) -> None:[m
+     await message.answer([m
+[31m-        "👋 Привет! Я бот TTQ_02. Команда /start работает.\n"[m
+[31m-        "Доступно:\n"[m
+[31m-        "• /ping — поставить задачу Celery\n"[m
+[31m-        "• /task <code>&lt;id&gt;</code> — статус задачи."[m
+[32m+[m[32m        "Привет! ✌️\n"[m
+[32m+[m[32m        "Команды:\n"[m
+[32m+[m[32m        "• /help — помощь\n"[m
+[32m+[m[32m        "• /ping — пинг backend\n"[m
+[32m+[m[32m        "• /link — создать/синхронизировать профиль в БД\n"[m
+[32m+[m[32m        "• /me — показать мой профиль + членства\n"[m
+[32m+[m[32m        "• /orgs — мои организации и роли\n"[m
+[32m+[m[32m        "• /id — показать мой Telegram ID\n"[m
+[32m+[m[32m        "• /setname Имя Фамилия — обновить display_name в БД\n"[m
+     )[m
+ [m
+ [m
+[31m-@dp.message(Command("ping"))[m
+[31m-async def ping_cmd(message: Message) -> None:[m
+[31m-    task = ping_task.delay()[m
+[32m+[m[32m@router.message(Command("help"))[m
+[32m+[m[32masync def cmd_help(message: types.Message) -> None:[m
+     await message.answer([m
+[31m-        f"🟢 Поставил задачу Celery: <code>{task.id}</code>\n"[m
+[31m-        f"Проверь статус: <code>/task {task.id}</code>"[m
+[32m+[m[32m        "Доступные команды:\n"[m
+[32m+[m[32m        "/ping — проверить связь с backend\n"[m
+[32m+[m[32m        "/link — синхронизировать профиль по Telegram ID\n"[m
+[32m+[m[32m        "/me — профиль в БД + членства\n"[m
+[32m+[m[32m        "/orgs — показать мои организации и роли\n"[m
+[32m+[m[32m        "/id — показать мой Telegram ID\n"[m
+[32m+[m[32m        "/setname Имя Фамилия — обновить display_name\n"[m
+     )[m
+ [m
+ [m
+[31m-@dp.message(Command("task"))[m
+[31m-async def task_status(message: Message) -> None:[m
+[31m-    parts = message.text.split(maxsplit=1)[m
+[31m-    if len(parts) < 2:[m
+[31m-        await message.answer("ℹ️ Использование: <code>/task &lt;task_id&gt;</code>")[m
+[32m+[m[32m@router.message(Command("ping"))[m
+[32m+[m[32masync def cmd_ping(message: types.Message) -> None:[m
+[32m+[m[32m    url = f"{BACKEND_BASE_URL}/api/v1/ping"[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        data = await _backend_json("GET", url, timeout=5)[m
+[32m+[m[32m        await message.answer(f"backend ответил: {json.dumps(data, ensure_ascii=False)}")[m
+[32m+[m[32m    except Exception as e:[m
+[32m+[m[32m        await message.answer(f"ошибка запроса к backend: {e!r}")[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@router.message(Command("id"))[m
+[32m+[m[32masync def cmd_id(message: types.Message) -> None:[m
+[32m+[m[32m    await message.answer(f"Ваш Telegram ID: {message.from_user.id}")[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@router.message(Command("me"))[m
+[32m+[m[32masync def cmd_me(message: types.Message) -> None:[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        user = await _get_user_by_tg(message.from_user.id)[m
+[32m+[m[32m        if not user:[m
+[32m+[m[32m            await message.answer("В БД тебя пока нет. Нажми /link — создам/синхронизирую профиль.")[m
+[32m+[m[32m            return[m
+[32m+[m
+[32m+[m[32m        # профиль[m
+[32m+[m[32m        lines = [[m
+[32m+[m[32m            "Профиль в БД:",[m
+[32m+[m[32m            f"id: {user.get('id')}",[m
+[32m+[m[32m            f"tg_user_id: {user.get('tg_user_id')}",[m
+[32m+[m[32m            f"display_name: {user.get('display_name')}",[m
+[32m+[m[32m            f"is_active: {user.get('is_active')}",[m
+[32m+[m[32m        ][m
+[32m+[m
+[32m+[m[32m        # членства[m
+[32m+[m[32m        orgs_url = f"{BACKEND_BASE_URL}/api/v1/org-users?user_id={user.get('id')}"[m
+[32m+[m[32m        memberships = await _backend_json("GET", orgs_url)[m
+[32m+[m[32m        if isinstance(memberships, list) and memberships:[m
+[32m+[m[32m            lines.append("\nЧленства:")[m
+[32m+[m[32m            for m in memberships:[m
+[32m+[m[32m                lines.append(f"- org_id={m.get('organization_id')} role={m.get('role')}")[m
+[32m+[m[32m        else:[m
+[32m+[m[32m            lines.append("\nЧленства: нет")[m
+[32m+[m
+[32m+[m[32m        await message.answer("\n".join(lines))[m
+[32m+[m[32m    except Exception as e:[m
+[32m+[m[32m        await message.answer(f"ошибка запроса к backend: {e!r}")[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@router.message(Command("orgs"))[m
+[32m+[m[32masync def cmd_orgs(message: types.Message) -> None:[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        user = await _get_user_by_tg(message.from_user.id)[m
+[32m+[m[32m        if not user:[m
+[32m+[m[32m            await message.answer("Тебя нет в БД. Нажми /link, чтобы создать запись.")[m
+[32m+[m[32m            return[m
+[32m+[m
+[32m+[m[32m        orgs_url = f"{BACKEND_BASE_URL}/api/v1/org-users?user_id={user.get('id')}"[m
+[32m+[m[32m        memberships = await _backend_json("GET", orgs_url)[m
+[32m+[m
+[32m+[m[32m        if not (isinstance(memberships, list) and memberships):[m
+[32m+[m[32m            await message.answer("У тебя пока нет членств в организациях.")[m
+[32m+[m[32m            return[m
+[32m+[m
+[32m+[m[32m        lines = ["Твои организации:"][m
+[32m+[m[32m        for m in memberships:[m
+[32m+[m[32m            lines.append(f"- org_id={m.get('organization_id')}  role={m.get('role')}")[m
+[32m+[m[32m        await message.answer("\n".join(lines))[m
+[32m+[m[32m    except Exception as e:[m
+[32m+[m[32m        await message.answer(f"ошибка запроса к backend: {e!r}")[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@router.message(Command("link"))[m
+[32m+[m[32masync def cmd_link(message: types.Message) -> None:[m
+[32m+[m[32m    payload = {[m
+[32m+[m[32m        "tg_user_id": message.from_user.id,[m
+[32m+[m[32m        "display_name": message.from_user.full_name or message.from_user.username or "User",[m
+[32m+[m[32m        # "username": message.from_user.username,[m
+[32m+[m[32m        # "language_code": message.from_user.language_code,[m
+[32m+[m[32m        # "is_premium": getattr(message.from_user, "is_premium", None),[m
+[32m+[m[32m    }[m
+[32m+[m[32m    url = f"{BACKEND_BASE_URL}/api/v1/users/telegram-sync"[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        data = await _backend_json("POST", url, json_body=payload)[m
+[32m+[m[32m        created = data.get("created")[m
+[32m+[m[32m        user = data.get("user") or {}[m
+[32m+[m[32m        membership = data.get("membership")[m
+[32m+[m
+[32m+[m[32m        msg = [[m
+[32m+[m[32m            "Синхронизация завершена.",[m
+[32m+[m[32m            f"created: {created}",[m
+[32m+[m[32m            f"user.id: {user.get('id')}",[m
+[32m+[m[32m            f"user.display_name: {user.get('display_name')}",[m
+[32m+[m[32m            f"user.is_active: {user.get('is_active')}",[m
+[32m+[m[32m        ][m
+[32m+[m[32m        if membership:[m
+[32m+[m[32m            msg.append(f"membership.org_id: {membership.get('org_id')}")[m
+[32m+[m[32m            msg.append(f"membership.role: {membership.get('role')}")[m
+[32m+[m[32m        await message.answer("\n".join(msg))[m
+[32m+[m[32m    except Exception as e:[m
+[32m+[m[32m        await message.answer(f"ошибка запроса к backend: {e!r}")[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@router.message(Command("setname"))[m
+[32m+[m[32masync def cmd_setname(message: types.Message) -> None:[m
+[32m+[m[32m    # парсим аргументы после команды[m
+[32m+[m[32m    raw = (message.text or "").split(maxsplit=1)[m
+[32m+[m[32m    if len(raw) < 2 or not raw[1].strip():[m
+[32m+[m[32m        await message.answer("Использование: /setname Имя Фамилия")[m
+         return[m
+[31m-    task_id = parts[1].strip()[m
+[31m-    res = AsyncResult(task_id, app=celery_app)[m
+[31m-    if res.successful():[m
+[31m-        await message.answer([m
+[31m-            f"✅ <b>{task_id}</b>\nstate: <code>{res.state}</code>\nresult: <code>{res.result}</code>"[m
+[31m-        )[m
+[31m-    elif res.failed():[m
+[31m-        await message.answer(f"❌ <b>{task_id}</b>\nstate: <code>{res.state}</code>")[m
+[31m-    else:[m
+[31m-        await message.answer(f"⏳ <b>{task_id}</b>\nstate: <code>{res.state}</code>")[m
+[31m-[m
+[31m-[m
+[31m-@dp.message(F.text)[m
+[31m-async def echo(message: Message) -> None:[m
+[31m-    await message.answer(f"Ты написал: <code>{message.text}</code>")[m
+[32m+[m[32m    new_name = raw[1].strip()[m
+[32m+[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        user = await _get_user_by_tg(message.from_user.id)[m
+[32m+[m[32m        if not user:[m
+[32m+[m[32m            await message.answer("Тебя нет в БД. Нажми сначала /link.")[m
+[32m+[m[32m            return[m
+[32m+[m
+[32m+[m[32m        user_id = user.get("id")[m
+[32m+[m[32m        url = f"{BACKEND_BASE_URL}/api/v1/users/{user_id}"[m
+[32m+[m[32m        data = await _backend_json("PATCH", url, json_body={"display_name": new_name})[m
+[32m+[m[32m        await message.answer(f"Готово. Новое имя: {data.get('display_name')}")[m
+[32m+[m[32m    except Exception as e:[m
+[32m+[m[32m        await message.answer(f"ошибка запроса к backend: {e!r}")[m
+[1mdiff --git a/backend/app/adapters/telegram/run.py b/backend/app/adapters/telegram/run.py[m
+[1mindex 7fff43b..95e4b22 100644[m
+[1m--- a/backend/app/adapters/telegram/run.py[m
+[1m+++ b/backend/app/adapters/telegram/run.py[m
+[36m@@ -1,27 +1,30 @@[m
+[32m+[m[32m# tg_bot/app/adapters/telegram/run.py[m
+[32m+[m[32mfrom __future__ import annotations[m
+[32m+[m
+ import asyncio[m
+ import logging[m
+[31m-import signal[m
+[32m+[m[32mimport os[m
+[32m+[m
+[32m+[m[32mfrom aiogram import Bot, Dispatcher[m
+ [m
+[31m-from app.adapters.telegram.bot import bot, dp[m
+[32m+[m[32mfrom app.adapters.telegram.bot import router[m
+ [m
+[31m-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s | %(message)s")[m
+[32m+[m[32mlogging.basicConfig(level=logging.INFO)[m
+[32m+[m[32mlogger = logging.getLogger("tg_bot")[m
+ [m
+ [m
+[31m-async def _main() -> None:[m
+[31m-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())[m
+[32m+[m[32masync def main() -> None:[m
+[32m+[m[32m    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()[m
+[32m+[m[32m    if not token:[m
+[32m+[m[32m        raise RuntimeError("TELEGRAM_BOT_TOKEN не задан")[m
+ [m
+[32m+[m[32m    bot = Bot(token=token)[m
+[32m+[m[32m    dp = Dispatcher()[m
+[32m+[m[32m    dp.include_router(router)[m
+ [m
+[31m-def _graceful_shutdown(loop: asyncio.AbstractEventLoop):[m
+[31m-    for task in asyncio.all_tasks(loop):[m
+[31m-        task.cancel()[m
+[32m+[m[32m    logger.info("Starting aiogram bot...")[m
+[32m+[m[32m    await dp.start_polling(bot)[m
+ [m
+ [m
+ if __name__ == "__main__":[m
+[31m-    loop = asyncio.new_event_loop()[m
+[31m-    for sig in (signal.SIGINT, signal.SIGTERM):[m
+[31m-        loop.add_signal_handler(sig, _graceful_shutdown, loop)[m
+[31m-    try:[m
+[31m-        loop.run_until_complete(_main())[m
+[31m-    finally:[m
+[31m-        loop.run_until_complete(bot.session.close())[m
+[31m-        loop.close()[m
+[32m+[m[32m    asyncio.run(main())[m
+[1mdiff --git a/backend/app/api/deps.py b/backend/app/api/deps.py[m
+[1mindex f98ef2b..f5823e7 100644[m
+[1m--- a/backend/app/api/deps.py[m
+[1m+++ b/backend/app/api/deps.py[m
+[36m@@ -1,19 +1,5 @@[m
+ from __future__ import annotations[m
+ [m
+[31m-from typing import Iterator[m
+[32m+[m[32mfrom app.db.session import get_db  # просто реэкспорт, чтобы не менять импорты в роутерах[m
+ [m
+[31m-from sqlalchemy import create_engine[m
+[31m-from sqlalchemy.orm import Session, sessionmaker[m
+[31m-[m
+[31m-from app.db.session import _build_sync_url  # у тебя уже есть[m
+[31m-[m
+[31m-_engine = create_engine(_build_sync_url(), future=True)[m
+[31m-_SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, future=True)[m
+[31m-[m
+[31m-[m
+[31m-def get_db() -> Iterator[Session]:[m
+[31m-    db = _SessionLocal()[m
+[31m-    try:[m
+[31m-        yield db[m
+[31m-    finally:[m
+[31m-        db.close()[m
+[32m+[m[32m__all__ = ["get_db"][m
+[1mdiff --git a/backend/app/api/v1/routers/bots.py b/backend/app/api/v1/routers/bots.py[m
+[1mindex badaa43..d8105ff 100644[m
+[1m--- a/backend/app/api/v1/routers/bots.py[m
+[1m+++ b/backend/app/api/v1/routers/bots.py[m
+[36m@@ -1,82 +1,116 @@[m
+ from __future__ import annotations[m
+ [m
+[31m-import uuid[m
+[31m-from typing import Annotated[m
+[32m+[m[32mfrom datetime import datetime, timezone[m
+[32m+[m[32mfrom typing import List, Optional[m
+[32m+[m[32mfrom uuid import UUID[m
+ [m
+ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status[m
+ from sqlalchemy import select[m
+[31m-from sqlalchemy.exc import IntegrityError[m
+[31m-from sqlalchemy.ext.asyncio import AsyncSession[m
+[32m+[m[32mfrom sqlalchemy.orm import Session[m
+ [m
+ from app.api.deps import get_db[m
+[31m-from app.api.v1.schemas.bot import BotCreate, BotRead, BotUpdate[m
+[32m+[m[32mfrom app.api.v1.schemas.bot import ([m
+[32m+[m[32m    BotCreate,[m
+[32m+[m[32m    BotUpdate,[m
+[32m+[m[32m    BotRead,[m
+[32m+[m[32m    BotRotateTokenIn,[m
+[32m+[m[32m    BotRotateTokenOut,[m
+[32m+[m[32m)[m
+ from app.db.models.bot import Bot[m
+ [m
+[31m-router = APIRouter(prefix="/bots", tags=["bots"])[m
+[32m+[m[32mrouter = APIRouter(prefix="/api/v1/bots", tags=["bots"])[m
+ [m
+ [m
+[31m-@router.get("", response_model=list[BotRead])[m
+[31m-async def list_bots([m
+[31m-    db: Annotated[AsyncSession, Depends(get_db)],[m
+[31m-    offset: int = Query(0, ge=0),[m
+[31m-    limit: int = Query(50, ge=1, le=200),[m
+[31m-) -> list[Bot]:[m
+[31m-    res = await db.execute(select(Bot).order_by(Bot.created_at.desc()).offset(offset).limit(limit))[m
+[31m-    return list(res.scalars().all())[m
+[32m+[m[32mdef to_read_model(b: Bot) -> BotRead:[m
+[32m+[m[32m    return BotRead.model_validate(b, from_attributes=True)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@router.get("", response_model=List[BotRead])[m
+[32m+[m[32mdef list_bots([m
+[32m+[m[32m    q: Optional[str] = Query(None, description="Поиск по username (подстрока)"),[m
+[32m+[m[32m    org_id: Optional[UUID] = Query(None, description="Фильтр по организации"),[m
+[32m+[m[32m    is_active: Optional[bool] = Query(None, description="Фильтр по активности"),[m
+[32m+[m[32m    limit: int = Query(50, ge=1, le=200, description="Размер страницы"),[m
+[32m+[m[32m    offset: int = Query(0, ge=0, description="Смещение"),[m
+[32m+[m[32m    db: Session = Depends(get_db),[m
+[32m+[m[32m) -> List[BotRead]:[m
+[32m+[m[32m    stmt = select(Bot)[m
+[32m+[m[32m    if q:[m
+[32m+[m[32m        stmt = stmt.where(Bot.username.ilike(f"%{q}%"))  # type: ignore[attr-defined][m
+[32m+[m[32m    if org_id is not None:[m
+[32m+[m[32m        stmt = stmt.where(Bot.organization_id == org_id)[m
+[32m+[m[32m    if is_active is not None:[m
+[32m+[m[32m        stmt = stmt.where(Bot.is_active == is_active)[m
+[32m+[m
+[32m+[m[32m    bots = db.execute(stmt.offset(offset).limit(limit)).scalars().all()[m
+[32m+[m[32m    return [to_read_model(b) for b in bots][m
+ [m
+ [m
+ @router.post("", response_model=BotRead, status_code=status.HTTP_201_CREATED)[m
+[31m-async def create_bot(payload: BotCreate, db: Annotated[AsyncSession, Depends(get_db)]) -> Bot:[m
+[31m-    obj = Bot(id=uuid.uuid4(), username=payload.username)[m
+[31m-    db.add(obj)[m
+[31m-    try:[m
+[31m-        await db.commit()[m
+[31m-    except IntegrityError:[m
+[31m-        await db.rollback()[m
+[31m-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="username already exists")[m
+[31m-    await db.refresh(obj)[m
+[31m-    return obj[m
+[32m+[m[32mdef create_bot(payload: BotCreate, db: Session = Depends(get_db)) -> BotRead:[m
+[32m+[m[32m    exists = db.execute(select(Bot).where(Bot.username == payload.username)).scalar_one_or_none()[m
+[32m+[m[32m    if exists:[m
+[32m+[m[32m        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Bot with this username already exists")[m
+[32m+[m
+[32m+[m[32m    bot = Bot(username=payload.username)[m
+[32m+[m[32m    db.add(bot)[m
+[32m+[m[32m    db.commit()[m
+[32m+[m[32m    db.refresh(bot)[m
+[32m+[m[32m    return to_read_model(bot)[m
+ [m
+ [m
+ @router.get("/{bot_id}", response_model=BotRead)[m
+[31m-async def get_bot(bot_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)]) -> Bot:[m
+[31m-    obj = await db.get(Bot, bot_id)[m
+[31m-    if not obj:[m
+[31m-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")[m
+[31m-    return obj[m
+[32m+[m[32mdef get_bot(bot_id: UUID, db: Session = Depends(get_db)) -> BotRead:[m
+[32m+[m[32m    bot = db.get(Bot, bot_id)[m
+[32m+[m[32m    if not bot:[m
+[32m+[m[32m        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bot not found")[m
+[32m+[m[32m    return to_read_model(bot)[m
+ [m
+ [m
+ @router.patch("/{bot_id}", response_model=BotRead)[m
+[31m-async def update_bot([m
+[31m-    bot_id: uuid.UUID, payload: BotUpdate, db: Annotated[AsyncSession, Depends(get_db)][m
+[31m-) -> Bot:[m
+[31m-    obj = await db.get(Bot, bot_id)[m
+[31m-    if not obj:[m
+[31m-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")[m
+[32m+[m[32mdef update_bot(bot_id: UUID, payload: BotUpdate, db: Session = Depends(get_db)) -> BotRead:[m
+[32m+[m[32m    bot = db.get(Bot, bot_id)[m
+[32m+[m[32m    if not bot:[m
+[32m+[m[32m        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bot not found")[m
+ [m
+[31m-    if payload.username is not None:[m
+[31m-        obj.username = payload.username[m
+[32m+[m[32m    if payload.tg_bot_id is not None:[m
+[32m+[m[32m        bot.tg_bot_id = payload.tg_bot_id[m
+[32m+[m[32m    if payload.organization_id is not None:[m
+[32m+[m[32m        bot.organization_id = payload.organization_id[m
+[32m+[m[32m    if payload.is_active is not None:[m
+[32m+[m[32m        bot.is_active = payload.is_active[m
+ [m
+[31m-    active = payload.is_active[m
+[31m-    if active is not None:[m
+[31m-        obj.is_active = active[m
+[32m+[m[32m    db.commit()[m
+[32m+[m[32m    db.refresh(bot)[m
+[32m+[m[32m    return to_read_model(bot)[m
+ [m
+[31m-    if payload.organization_id is not None:[m
+[31m-        obj.organization_id = payload.organization_id[m
+[31m-[m
+[31m-    try:[m
+[31m-        await db.commit()[m
+[31m-    except IntegrityError:[m
+[31m-        await db.rollback()[m
+[31m-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="username already exists")[m
+[31m-    await db.refresh(obj)[m
+[31m-    return obj[m
+[31m-[m
+[31m-[m
+[31m-@router.delete("/{bot_id}", status_code=status.HTTP_204_NO_CONTENT)[m
+[31m-async def delete_bot(bot_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)]) -> Response:[m
+[31m-    obj = await db.get(Bot, bot_id)[m
+[31m-    if obj:[m
+[31m-        await db.delete(obj)[m
+[31m-

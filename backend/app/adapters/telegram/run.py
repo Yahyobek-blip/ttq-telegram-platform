@@ -1,27 +1,30 @@
+# tg_bot/app/adapters/telegram/run.py
+from __future__ import annotations
+
 import asyncio
 import logging
-import signal
+import os
 
-from app.adapters.telegram.bot import bot, dp
+from aiogram import Bot, Dispatcher
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s | %(message)s")
+from app.adapters.telegram.bot import router
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("tg_bot")
 
 
-async def _main() -> None:
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+async def main() -> None:
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    if not token:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN не задан")
 
+    bot = Bot(token=token)
+    dp = Dispatcher()
+    dp.include_router(router)
 
-def _graceful_shutdown(loop: asyncio.AbstractEventLoop):
-    for task in asyncio.all_tasks(loop):
-        task.cancel()
+    logger.info("Starting aiogram bot...")
+    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
-    loop = asyncio.new_event_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, _graceful_shutdown, loop)
-    try:
-        loop.run_until_complete(_main())
-    finally:
-        loop.run_until_complete(bot.session.close())
-        loop.close()
+    asyncio.run(main())
