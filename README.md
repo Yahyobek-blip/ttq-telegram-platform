@@ -34,3 +34,8 @@ POST /api/v1/celery/ping — ставит задачу, worker отвечает 
 Базовая админ-панель (frontend)
 
 Интеграционные тесты и CI
+
+## Этапы разработки
+- [stage-0-init](https://github.com/ТВОЙ_ЮЗЕР/ttq-telegram-platform/tree/stage-0-init) → Инициализация проекта, базовые настройки
+- [stage-1-infrastructure](https://github.com/ТВОЙ_ЮЗЕР/ttq-telegram-platform/tree/stage-1-infrastructure) → Инфраструктура: Docker, база данных, проверки работоспособности
+- [stage-2-backend-tg-bot](https://github.com/ТВОЙ_ЮЗЕР/ttq-telegram-platform/tree/stage-2-backend-tg-bot) → Бэкенд для Telegram-бота
