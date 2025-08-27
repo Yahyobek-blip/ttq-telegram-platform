@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -60,18 +62,16 @@ def user_to_dict(u: User) -> Dict[str, Any]:
     return data
 
 
-def first_any_organization(db: Session) -> Optional[Organization]:
-    """Возвращаем первую попавшуюся организацию (по created_at, если поле есть)."""
-    try:
-        # если у модели есть created_at – отсортируем по нему
-        if hasattr(Organization, "created_at"):
-            stmt = select(Organization).order_by(Organization.created_at.asc())
-        else:
-            stmt = select(Organization)
-        return db.execute(stmt).scalar_one_or_none()
-    except Exception:
-        # на всякий случай – вообще без сортировок
-        return db.execute(select(Organization)).scalar_one_or_none()
+def first_any_organization(db: Session):
+    """
+    Вернуть любую (самую раннюю по created_at) организацию или None.
+    Должно работать корректно при N>1 организациях.
+    """
+    stmt = select(Organization)
+    if hasattr(Organization, "created_at"):
+        stmt = stmt.order_by(Organization.created_at.asc())
+    # берем первую строку, а не "0 или 1", чтобы не падать при множестве записей
+    return db.execute(stmt.limit(1)).scalars().first()
 
 
 # --------- Эндпоинты ---------
@@ -194,3 +194,30 @@ def telegram_sync(
         "user": user_to_dict(u),
         "membership": membership_info,
     }
+
+
+class UserUpdateIn(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=128)
+    is_active: bool | None = None
+
+
+@router.patch("/{user_id}", response_model=dict)
+def update_user(user_id: UUID, payload: UserUpdateIn, db: Session = Depends(get_db)):
+    u = db.get(User, user_id)
+    if not u:
+        raise HTTPException(status_code=404, detail="not found")
+
+    changed = False
+    if payload.display_name is not None:
+        u.display_name = payload.display_name
+        changed = True
+    if payload.is_active is not None and hasattr(u, "is_active"):
+        u.is_active = payload.is_active
+        changed = True
+
+    if changed:
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+
+    return user_to_dict(u)

@@ -1,28 +1,20 @@
-# tg_bot/app/adapters/telegram/run.py
-from __future__ import annotations
-
+# backend/app/adapters/telegram/run.py
 import asyncio
 import logging
-import os
 
 from aiogram import Bot, Dispatcher
 
 from app.adapters.telegram.bot import router
+from app.core.config import settings
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tg_bot")
 
 
-async def main() -> None:
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-    if not token:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN не задан")
-
-    bot = Bot(token=token)
+async def main():
+    logger.info("Starting aiogram bot...")
+    bot = Bot(token=settings.TELEGRAM_BOT_TOKEN, parse_mode="HTML")
     dp = Dispatcher()
     dp.include_router(router)
-
-    logger.info("Starting aiogram bot...")
     await dp.start_polling(bot)
 
 
